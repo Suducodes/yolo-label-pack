@@ -8,8 +8,8 @@ Teach a computer to see, with nothing to install.
 
 Built for the BME YOLO workshop (KPR Institute of Engineering and Technology).
 
-## Use your own photos
-Click **Use my own photos** at the top: choose photos (or a `.zip` of photos), type the names of the things you want to find, and label away. If your zip is already labeled in YOLO format, its boxes and names load automatically.
+## Load your photos
+The page opens empty. Choose your photos (or a `.zip` of photos), type the names of the things you want to find, and label away. If your zip is already labeled in YOLO format, its boxes and names load automatically.
 
 ## How it works
 - `index.html` is a single page that runs entirely in your browser. Your boxes stay on your laptop (saved in your browser, never uploaded).
