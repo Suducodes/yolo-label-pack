@@ -101,6 +101,7 @@
     <label class="note">What do you want to find? (names, separated by commas)</label>
     <input id="ownNames" type="text" placeholder="e.g. cat, dog, bird" style="display:block; width:100%; margin:4px 0 6px; padding:9px 11px; border-radius:9px; border:1px solid #2e3848; background:#0a0d12; color:var(--text); font:inherit">
     <div class="note" style="margin-bottom:12px">Leave empty if your zip already has a data.yaml with the names.</div>
+    <label class="note" style="display:flex; gap:8px; align-items:center; margin-bottom:12px; cursor:pointer"><input id="ownKeep" type="checkbox"> Keep the boxes that are already in the zip (leave unticked to start with <b>unlabeled</b> photos)</label>
     <div id="ownmsg" class="note" style="min-height:20px"></div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px">
       <button id="ownCancel">Cancel</button><button id="ownGo" class="primary">Load</button>
@@ -395,10 +396,10 @@ async function loadOwn(files, typedNames, setStatus) {
     if (t) { const bs = parseLabelTxt(t).filter(b => b.c >= 0 && b.c < names.length); if (bs.length) loaded[p.name] = bs; } });
   return { photos, names, loaded };
 }
-function useDataset(photos, names, loaded) {
+function useDataset(photos, names, loaded, keep) {
   PHOTOS = photos.map(p => ({ name: p.name, data: p.data })); CLASSES = names; STORE_KEY = storeKey();
-  try { labels = JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch (e) { labels = {}; }
-  Object.entries(loaded).forEach(([k, v]) => { if (!(labels[k] || []).length) labels[k] = v; });
+  labels = {};   // loading a dataset starts clean unless the student asked to keep the zip's boxes
+  if (keep) Object.entries(loaded).forEach(([k, v]) => { labels[k] = v; });
   undoStack = {}; cur = 0; sel = -1; save(); renderStrip(); show(0);
 }
 $("own").onclick = () => { $("modal").style.display = "flex"; $("ownmsg").textContent = ""; };
@@ -409,9 +410,10 @@ $("ownGo").onclick = async () => {
   try {
     $("ownGo").disabled = true;
     const r = await loadOwn(files, $("ownNames").value, t => { msg.textContent = t; });
-    useDataset(r.photos, r.names, r.loaded);
+    const keep = $("ownKeep").checked, had = Object.keys(r.loaded).length;
+    useDataset(r.photos, r.names, r.loaded, keep);
     $("modal").style.display = "none";
-    say(`Loaded ${r.photos.length} photos. Names: ${r.names.join(", ")}.` + (Object.keys(r.loaded).length ? ` ${Object.keys(r.loaded).length} already had boxes.` : ""), "ok");
+    say(`Loaded ${r.photos.length} photos. Names: ${r.names.join(", ")}.` + (had ? (keep ? ` Kept the ${had} existing boxes.` : ` Ignored the ${had} boxes in the zip: photos are unlabeled.`) : ""), "ok");
   } catch (err) { msg.textContent = err.message; msg.className = "err"; }
   $("ownGo").disabled = false;
 };
