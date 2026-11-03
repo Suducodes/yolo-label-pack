@@ -49,6 +49,8 @@
   .strip .done::after { content: "\2713"; position: absolute; right: 3px; bottom: 2px; font-size: 12px; font-weight: 800; color: var(--accent-ink); background: var(--accent); border-radius: 50%; width: 16px; height: 16px; line-height: 16px; text-align: center; }
   .note { color: var(--muted); font-size: 13px; }
   .err { color: var(--bad); }
+  .cls button.small { padding: 2px 7px; font-size: 12px; opacity: .65; }
+  .cls button.small:hover { opacity: 1; }
   #msg { margin-top: 8px; padding: 10px 12px; border-radius: 10px; font-size: 14px; display: none; }
   #msg.ok { display: block; background: rgba(62,230,160,.12); border: 1px solid rgba(62,230,160,.35); color: #cdeedd; }
   #msg.err { display: block; background: rgba(255,107,107,.12); border: 1px solid rgba(255,107,107,.35); color: #ffd0d0; }
@@ -75,11 +77,13 @@
   </div>
   <aside>
     <div class="howto"><b>How to label</b>
-      <ol><li>Pick the thing's name on the right (or press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>).</li>
+      <ol><li><b>Look</b> at the photo. Add or pick the name of what you see on the right (keys <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>…).</li>
       <li><b>Drag</b> a tight box around it on the photo.</li>
       <li>Press <b>Next →</b> and repeat.</li></ol>
     </div>
-    <div><h4>What is in the photo?</h4><div id="classes"></div></div>
+    <div><h4>What is in the photo?</h4><div id="classes"></div>
+      <div id="clsHint" class="howto" style="margin:4px 0 8px; display:none">👀 <b>Look at the photo first.</b> Then type what you see (for example <i>elephant</i>) and press <b>Add</b>. Add a new name whenever you meet something new.</div>
+      <div style="display:flex; gap:6px; margin-top:6px"><input id="newName" type="text" placeholder="Add a name, e.g. elephant" style="flex:1; min-width:0; padding:8px 10px; border-radius:9px; border:1px solid #2e3848; background:#0a0d12; color:var(--text); font:inherit"><button id="addName" class="small">+ Add</button></div></div>
     <div><h4>Boxes in this photo</h4><div id="boxes" class="note">None yet. Drag on the photo.</div></div>
     <div><h4>Shortcuts</h4>
       <div class="keys"><kbd>1 2 3</kbd><span>Choose the name</span><kbd>← →</kbd><span>Back / next photo</span><kbd>Del</kbd><span>Delete the selected box</span><kbd>Ctrl Z</kbd><span>Undo</span></div>
@@ -98,9 +102,9 @@
     <p class="note" style="margin:0 0 14px">Choose photos (several at once), or a <b>.zip</b> of photos, for example the photos zip from the shared Drive folder. If a zip is already labeled in YOLO format, its names load automatically.</p>
     <label class="note">Photos or .zip</label>
     <input id="ownFiles" type="file" multiple accept="image/*,.zip" style="display:block; width:100%; margin:4px 0 14px; color:var(--text)">
-    <label class="note">What do you want to find? (names, separated by commas)</label>
+    <label class="note">Names of the things to find <b>(optional)</b></label>
     <input id="ownNames" type="text" placeholder="e.g. cat, dog, bird" style="display:block; width:100%; margin:4px 0 6px; padding:9px 11px; border-radius:9px; border:1px solid #2e3848; background:#0a0d12; color:var(--text); font:inherit">
-    <div class="note" style="margin-bottom:12px">Leave empty if your zip already has a data.yaml with the names.</div>
+    <div class="note" style="margin-bottom:12px"><b>You can leave this empty.</b> After the photos load, look at them and add the names on the right.</div>
     <label class="note" style="display:flex; gap:8px; align-items:center; margin-bottom:12px; cursor:pointer"><input id="ownKeep" type="checkbox"> Keep the boxes that are already in the zip (leave unticked to start with <b>unlabeled</b> photos)</label>
     <div id="ownmsg" class="note" style="min-height:20px"></div>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px">
@@ -114,13 +118,12 @@
 let CLASSES = [];
 let PHOTOS = [];
 const COLORS = ["#3ee6a0", "#ff6b8b", "#5aa9ff", "#ffc24b", "#b78cff", "#3fd5e6", "#ff8f4b", "#9be35a"];
-function storeKey() {   // one saved-labels slot per dataset, so loading new photos never mixes up old boxes
-  let h = 5381; const s = CLASSES.join("|") + "#" + PHOTOS.map(p => p.name).join("|");
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return "label-and-pack.v2." + h;
-}
-let STORE_KEY = storeKey();
+const SAVE_KEY = "label-and-pack.v3";   // names + boxes live in localStorage; the photos themselves in IndexedDB
 const has = () => PHOTOS.length > 0;   // the page can open empty: students load their own photos
+const cleanClass = s => s.trim().replace(/\s+/g, " ").replace(/[:#'"\[\]{},<>&]/g, "");   // names go into data.yaml, keep them simple
+function idbOpen() { return new Promise((res, rej) => { const r = indexedDB.open("label-and-pack", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbSet(k, v) { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction("kv", "readwrite"); tx.objectStore("kv").put(v, k); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); }
+async function idbGet(k) { const db = await idbOpen(); return new Promise((res, rej) => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
 
 /* ===== tiny ZIP writer (no compression, no libraries) ===== */
 // <ZIP>
@@ -163,8 +166,7 @@ let idx = 0, cur = 0, sel = -1, draft = null, undoStack = {};
 const img = new Image();
 let view = { s: 1, ox: 0, oy: 0, iw: 1, ih: 1 };
 
-try { labels = JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch (e) { labels = {}; }
-const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(labels)); } catch (e) { /* private mode: fine */ } };
+const save = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify({ classes: CLASSES, labels })); } catch (e) { /* private mode: fine */ } };
 const boxes = () => (labels[PHOTOS[idx].name] = labels[PHOTOS[idx].name] || []);
 const labeledCount = () => PHOTOS.filter(p => (labels[p.name] || []).length > 0).length;
 
@@ -212,7 +214,7 @@ function show(i) {
 function refresh() {
   if (!has()) {
     $("pill").textContent = "No photos yet"; $("progtxt").textContent = "0 / 0 labeled"; $("progbar").style.width = "0";
-    $("classes").innerHTML = ""; $("boxes").innerHTML = "Load your photos to start."; return;
+    $("classes").innerHTML = ""; $("clsHint").style.display = "none"; $("boxes").innerHTML = "Load your photos to start."; return;
   }
   const n = labeledCount();
   $("pill").textContent = `Photo ${idx + 1} / ${PHOTOS.length}  ·  ${PHOTOS[idx].name}`;
@@ -220,7 +222,8 @@ function refresh() {
   $("progbar").style.width = (100 * n / PHOTOS.length) + "%";
   const totals = CLASSES.map((_, c) => Object.values(labels).reduce((s, arr) => s + arr.filter(b => b.c === c).length, 0));
   $("classes").innerHTML = CLASSES.map((name, c) =>
-    `<div class="cls ${c === cur ? "on" : ""}" style="--c:${COLORS[c % COLORS.length]}" data-c="${c}"><span class="sw"></span><span class="n">${name}</span><span class="k">${c + 1}</span><span class="cnt">${totals[c]}</span></div>`).join("");
+    `<div class="cls ${c === cur ? "on" : ""}" style="--c:${COLORS[c % COLORS.length]}" data-c="${c}"><span class="sw"></span><span class="n">${name}</span><span class="k">${c + 1}</span><span class="cnt">${totals[c]}</span><button class="small" data-ren="${c}" title="Rename">✎</button><button class="small" data-rm="${c}" title="Remove (only if no box uses it)">✕</button></div>`).join("");
+  $("clsHint").style.display = CLASSES.length ? "none" : "block";
   const bs = boxes();
   $("boxes").innerHTML = bs.length ? bs.map((b, i) =>
     `<div class="boxrow ${i === sel ? "on" : ""}" data-i="${i}" style="--c:${COLORS[b.c % COLORS.length]}"><span class="sw"></span><span style="flex:1">${CLASSES[b.c]}</span><button class="small" data-del="${i}">✕</button></div>`).join("") : "None yet. Drag on the photo.";
@@ -250,6 +253,8 @@ cv.addEventListener("pointerup", () => {
   const [ax, ay] = norm(draft.x0, draft.y0), [bx, by] = norm(draft.x1, draft.y1);
   const x1 = Math.max(0, Math.min(ax, bx)), x2 = Math.min(1, Math.max(ax, bx)), y1 = Math.max(0, Math.min(ay, by)), y2 = Math.min(1, Math.max(ay, by));
   draft = null;
+  if (!CLASSES.length) { say("First add a name on the right (what do you see in the photo?), then draw the box.", "err"); draw(); return; }
+  if (cur >= CLASSES.length) cur = 0;
   if ((x2 - x1) > 0.015 && (y2 - y1) > 0.015) change(() => { boxes().push({ c: cur, x: (x1 + x2) / 2, y: (y1 + y2) / 2, w: x2 - x1, h: y2 - y1 }); sel = boxes().length - 1; });
   else draw();
 });
@@ -257,13 +262,33 @@ function undo() { if (!has()) return; const s = undoStack[idx]; if (s && s.lengt
 function removeBox(i) { change(() => { boxes().splice(i, 1); sel = -1; }); }
 function setClass(c) { cur = c; if (sel >= 0) change(() => { boxes()[sel].c = c; }); else refresh(); }
 
-$("classes").addEventListener("click", e => { const d = e.target.closest(".cls"); if (d) setClass(+d.dataset.c); });
+function addClassName(raw) {
+  const name = cleanClass(raw);
+  if (!name) return;
+  if (CLASSES.some(c => c.toLowerCase() === name.toLowerCase())) { say(`"${name}" is already in the list.`, "err"); return; }
+  CLASSES.push(name); cur = CLASSES.length - 1; $("msg").className = ""; save(); refresh(); draw();
+}
+function removeClass(c) {
+  if (Object.values(labels).some(arr => arr.some(b => b.c === c))) { say(`"${CLASSES[c]}" is used by some boxes. Delete those boxes first.`, "err"); return; }
+  if (!confirm(`Remove the name "${CLASSES[c]}"?`)) return;
+  CLASSES.splice(c, 1); Object.values(labels).forEach(arr => arr.forEach(b => { if (b.c > c) b.c--; }));
+  cur = Math.min(cur, Math.max(0, CLASSES.length - 1)); sel = -1; save(); refresh(); draw();
+}
+$("addName").onclick = () => { addClassName($("newName").value); $("newName").value = ""; $("newName").focus(); };
+$("newName").addEventListener("keydown", e => { if (e.key === "Enter") $("addName").click(); });
+$("classes").addEventListener("click", e => {
+  const ren = e.target.closest("[data-ren]"), rm = e.target.closest("[data-rm]");
+  if (ren) { const c = +ren.dataset.ren, n = prompt("New name:", CLASSES[c]); if (n && cleanClass(n)) { CLASSES[c] = cleanClass(n); save(); refresh(); draw(); } return; }
+  if (rm) return removeClass(+rm.dataset.rm);
+  const d = e.target.closest(".cls"); if (d) setClass(+d.dataset.c);
+});
 $("boxes").addEventListener("click", e => {
   const del = e.target.closest("[data-del]"); if (del) return removeBox(+del.dataset.del);
   const row = e.target.closest(".boxrow"); if (row) { sel = +row.dataset.i; draw(); refresh(); }
 });
 $("prev").onclick = () => show(idx - 1); $("next").onclick = () => show(idx + 1); $("undo").onclick = undo;
 window.addEventListener("keydown", e => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;   // typing a name must never trigger shortcuts
   if (e.ctrlKey && e.key.toLowerCase() === "z") { e.preventDefault(); return undo(); }
   if (e.key === "ArrowRight") show(idx + 1); else if (e.key === "ArrowLeft") show(idx - 1);
   else if ((e.key === "Delete" || e.key === "Backspace") && sel >= 0) removeBox(sel);
@@ -281,6 +306,7 @@ function b64bytes(dataUrl) { const bin = atob(dataUrl.split(",")[1]), out = new 
 function say(text, kind) { const m = $("msg"); m.className = kind; m.textContent = text; }
 function buildDataset() {
   const done = PHOTOS.filter(p => (labels[p.name] || []).length > 0);
+  if (!CLASSES.length) throw new Error("Add at least one name first: what is in your photos?");
   if (done.length < 6) throw new Error(`Label at least 6 photos first. You have ${done.length}.`);
   const val = new Set(done.filter((_, i) => i % 5 === 4).map(p => p.name));   // every 5th photo is kept for the "exam"
   const enc = new TextEncoder(), files = [];
@@ -397,9 +423,8 @@ async function loadOwn(files, typedNames, setStatus) {
     } else if (IMG_RE.test(f.name)) await addPhoto(f, f.name);
   }
   if (!photos.length) throw new Error("No photos found. Choose .jpg / .png files, or a .zip that contains them.");
-  const typed = typedNames.split(",").map(s => s.trim()).filter(Boolean), fromYaml = yamlText ? yamlNames(yamlText) : [];
-  const names = typed.length ? typed : fromYaml;
-  if (!names.length) throw new Error("Type the names of the things you want to find (separated by commas), e.g.  cat, dog");
+  const typed = typedNames.split(",").map(cleanClass).filter(Boolean), fromYaml = yamlText ? yamlNames(yamlText) : [];
+  const names = typed.length ? typed : fromYaml;   // may be empty: students can add names after looking at the photos
   const loaded = {};
   photos.forEach(p => {
     const full = p.src.toLowerCase().replace(/\\/g, "/").replace(/\.[^./]+$/, "").replace(/(^|\/)images(?=\/|$)/, "$1labels");
@@ -409,10 +434,22 @@ async function loadOwn(files, typedNames, setStatus) {
   return { photos, names, loaded };
 }
 function useDataset(photos, names, loaded, keep) {
-  PHOTOS = photos.map(p => ({ name: p.name, data: p.data })); CLASSES = names; STORE_KEY = storeKey();
+  PHOTOS = photos.map(p => ({ name: p.name, data: p.data })); CLASSES = names;
   labels = {};   // loading a dataset starts clean unless the student asked to keep the zip's boxes
   if (keep) Object.entries(loaded).forEach(([k, v]) => { labels[k] = v; });
-  undoStack = {}; cur = 0; sel = -1; save(); renderStrip(); show(0);
+  undoStack = {}; cur = 0; sel = -1; save();
+  idbSet("photos", PHOTOS).catch(() => { /* too big or blocked: the page still works, it just can't restore after a refresh */ });
+  renderStrip(); show(0);
+}
+async function restoreSession() {   // after a refresh or an accidental close: bring the photos, names and boxes back
+  let saved = null; try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) || "null"); } catch (e) { /* ignore */ }
+  if (!has()) { try { const p = await idbGet("photos"); if (p && p.length) PHOTOS = p; } catch (e) { /* ignore */ } }
+  if (!has()) return false;
+  if (saved && Array.isArray(saved.classes) && saved.classes.length) CLASSES = saved.classes;
+  if (saved && saved.labels) labels = saved.labels;
+  renderStrip(); show(0);
+  if (labeledCount()) say(`Welcome back! Your ${PHOTOS.length} photos and ${labeledCount()} labeled so far were restored.`, "ok");
+  return true;
 }
 $("own").onclick = () => { $("modal").style.display = "flex"; $("ownmsg").textContent = ""; };
 $("ownCancel").onclick = () => { $("modal").style.display = "none"; };
@@ -425,13 +462,14 @@ $("ownGo").onclick = async () => {
     const keep = $("ownKeep").checked, had = Object.keys(r.loaded).length;
     useDataset(r.photos, r.names, r.loaded, keep);
     $("modal").style.display = "none";
-    say(`Loaded ${r.photos.length} photos. Names: ${r.names.join(", ")}.` + (had ? (keep ? ` Kept the ${had} existing boxes.` : ` Ignored the ${had} boxes in the zip: photos are unlabeled.`) : ""), "ok");
+    say(`Loaded ${r.photos.length} photos. ` + (r.names.length ? `Names: ${r.names.join(", ")}.` : "Now look at the photo and add the name of what you see on the right.") + (had ? (keep ? ` Kept the ${had} existing boxes.` : ` Ignored the ${had} boxes in the zip: photos are unlabeled.`) : ""), "ok");
   } catch (err) { msg.textContent = err.message; msg.className = "err"; }
   $("ownGo").disabled = false;
 };
 
-show(0);
-if (!has()) { $("modal").style.display = "flex"; }   // empty start: open the "load your photos" window straight away
+restoreSession().then(restored => {
+  if (!restored) { show(0); $("modal").style.display = "flex"; }   // fresh start: open the "load your photos" window straight away
+});
 </script>
 </body>
 </html>
